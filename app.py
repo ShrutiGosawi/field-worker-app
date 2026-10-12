@@ -6,7 +6,22 @@ from io import BytesIO
 
 st.set_page_config(page_title="Field Worker Tracker", layout="centered")
 
-WORKERS = [f"Worker {i}" for i in range(1, 13)]
+# --- CUSTOM WORKER NAMES LIST ---
+WORKERS = [
+    "Anand", 
+    "Amit", 
+    "Faisal", 
+    "Sohan", 
+    "Deepika", 
+    "Dishant", 
+    "Nitish",
+    "Worker 8",   # You can replace these placeholders with real names later
+    "Worker 9",
+    "Worker 10",
+    "Worker 11",
+    "Worker 12"
+]
+
 EVENTS = ["Site Visit", "Delivery", "Maintenance", "Client Meeting", "Other"]
 
 st.title("Worker Data Collection App")
