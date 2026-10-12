@@ -15,7 +15,7 @@ WORKERS = [
     "Deepika", 
     "Dishant", 
     "Nitish",
-    "Worker 8",   # You can replace these placeholders with real names later
+    "Worker 8",   
     "Worker 9",
     "Worker 10",
     "Worker 11",
@@ -33,7 +33,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 try:
     df = conn.read(ttl="0d") # ttl="0d" ensures it always fetches fresh data instantly
 except Exception:
-    df = pd.DataFrame(columns=["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status"])
+    df = pd.DataFrame(columns=["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity"])
 
 # --- FORM SECTION ---
 st.header("📋 Log Daily Activity")
@@ -45,6 +45,9 @@ with st.form("activity_form", clear_on_submit=True):
     food = st.number_input("Food Allowance Amount", min_value=0.0, step=5.0)
     status = st.radio("Work Status", ["Completed", "Pending"], horizontal=True)
     
+    # New text input field for worker activity description
+    activity = st.text_input("Describe Your Activity", placeholder="Enter notes or task details here...")
+    
     submit = st.form_submit_button("Submit Entry")
 
 if submit:
@@ -54,7 +57,8 @@ if submit:
         "Event Type": event,
         "Fuel Allowance": float(fuel),
         "Food Allowance": float(food),
-        "Status": status
+        "Status": status,
+        "Activity": activity
     }])
     
     # Combine old data with new entry
