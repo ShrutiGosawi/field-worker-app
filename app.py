@@ -44,8 +44,6 @@ with st.form("activity_form", clear_on_submit=True):
     fuel = st.number_input("Fuel Allowance Amount", min_value=0.0, step=5.0)
     food = st.number_input("Food Allowance Amount", min_value=0.0, step=5.0)
     status = st.radio("Work Status", ["Completed", "Pending"], horizontal=True)
-    
-    # New text input field for worker activity description
     activity = st.text_input("Describe Your Activity", placeholder="Enter notes or task details here...")
     
     submit = st.form_submit_button("Submit Entry")
@@ -80,10 +78,21 @@ if not df.empty:
     # Build Excel in memory
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        # Sheet 1: Raw Data
+        # Sheet 1: Master Log (All Workers together)
         df.to_excel(writer, sheet_name="All_Logs", index=False)
         
-        # Sheet 2: Worker-wise & Date-wise Summary Pivot
+        # Dynamic Generation: Split each worker into their own individual sheet tab
+        for worker_name in WORKERS:
+            # Filter the master data to get only rows for this specific worker
+            worker_data = df[df["Worker Name"] == worker_name]
+            
+            # Only create a sheet tab if the worker actually has logged data
+            if not worker_data.empty:
+                # Excel tab names are limited to 31 characters max
+                safe_tab_name = str(worker_name)[:31]
+                worker_data.to_excel(writer, sheet_name=safe_tab_name, index=False)
+        
+        # Summary Sheet 1: Worker-wise & Date-wise Summary Pivot Table
         try:
             worker_pivot = df.pivot_table(
                 index="Worker Name", 
@@ -92,11 +101,11 @@ if not df.empty:
                 aggfunc="count", 
                 fill_value=0
             )
-            worker_pivot.to_excel(writer, sheet_name="Worker_vs_Date_Events")
+            worker_pivot.to_excel(writer, sheet_name="Summary_Pivot")
         except Exception:
             pass
         
-        # Sheet 3: Financial Totals
+        # Summary Sheet 2: Financial Totals Breakdown
         try:
             df["Fuel Allowance"] = pd.to_numeric(df["Fuel Allowance"])
             df["Food Allowance"] = pd.to_numeric(df["Food Allowance"])
@@ -106,9 +115,9 @@ if not df.empty:
             pass
 
     st.download_button(
-        label="📥 Download Structured Excel Sheet",
+        label="📥 Download Separated Excel Sheets",
         data=buffer.getvalue(),
-        file_name=f"field_worker_report_{datetime.date.today()}.xlsx",
+        file_name=f"separated_worker_report_{datetime.date.today()}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 else:
