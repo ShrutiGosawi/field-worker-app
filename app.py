@@ -14,7 +14,12 @@ WORKERS = [
     "Sohan", 
     "Deepika", 
     "Dishant", 
-    "Nitish",    
+    "Nitish",
+    "Worker 8",   
+    "Worker 9",
+    "Worker 10",
+    "Worker 11",
+    "Worker 12"
 ]
 
 EVENTS = ["Site Visit", "Delivery", "Maintenance", "Client Meeting", "Other"]
@@ -31,8 +36,10 @@ st.header("📋 Log Daily Activity")
 date_input = st.date_input("Date", datetime.date.today())
 worker = st.selectbox("Select Worker Name", WORKERS)
 
-# Check worker's tab for non-zero allowance entries on the selected date
-allowance_already_claimed = False
+# Track allowance statuses independently
+fuel_already_claimed = False
+food_already_claimed = False
+
 try:
     df_worker_check = conn.read(worksheet=worker, ttl="0d")
     if not df_worker_check.empty:
@@ -40,28 +47,39 @@ try:
         day_entries = df_worker_check[df_worker_check["Date"].astype(str) == str(date_input)]
         
         if not day_entries.empty:
-            # Check if any row on this date has a Fuel or Food allowance greater than 0
-            has_fuel = pd.to_numeric(day_entries["Fuel Allowance"]).max() > 0
-            has_food = pd.to_numeric(day_entries["Food Allowance"]).max() > 0
-            
-            if has_fuel or has_food:
-                allowance_already_claimed = True
+            # Check Fuel Allowance history for today
+            max_fuel = pd.to_numeric(day_entries["Fuel Allowance"]).max()
+            if max_fuel > 0:
+                fuel_already_claimed = True
+                
+            # Check Food Allowance history for today
+            max_food = pd.to_numeric(day_entries["Food Allowance"]).max()
+            if max_food > 0:
+                food_already_claimed = True
 except Exception:
     pass
 
-# Display alert notice only if non-zero allowances have already been logged today
-if allowance_already_claimed:
-    st.warning(f"⚠️ Non-zero Daily Allowances for {worker} on {date_input} have already been claimed. Additional entries will lock allowances to 0.00.")
+# Display clear notification banners based on what has been claimed
+if fuel_already_claimed and not food_already_claimed:
+    st.warning(f"ℹ️ {worker} has already claimed Fuel Allowance for today. Food Allowance is still open.")
+elif food_already_claimed and not fuel_already_claimed:
+    st.warning(f"ℹ️ {worker} has already claimed Food Allowance for today. Fuel Allowance is still open.")
+elif fuel_already_claimed and food_already_claimed:
+    st.error(f"⚠️ Both Fuel and Food allowances for {worker} have already been claimed for today.")
 
 with st.form("activity_form", clear_on_submit=True):
     event = st.selectbox("Event Type", EVENTS)
     
-    # Freeze inputs to 0.0 only if a non-zero claim already exists for today
-    if allowance_already_claimed:
-        fuel = st.number_input("Fuel Allowance Amount", value=0.0, disabled=True, help="Allowance already claimed today.")
-        food = st.number_input("Food Allowance Amount", value=0.0, disabled=True, help="Allowance already claimed today.")
+    # Handle Fuel Field Independently
+    if fuel_already_claimed:
+        fuel = st.number_input("Fuel Allowance Amount", value=0.0, disabled=True, help="Fuel already claimed today.")
     else:
         fuel = st.number_input("Fuel Allowance Amount", min_value=0.0, step=5.0)
+        
+    # Handle Food Field Independently
+    if food_already_claimed:
+        food = st.number_input("Food Allowance Amount", value=0.0, disabled=True, help="Food already claimed today.")
+    else:
         food = st.number_input("Food Allowance Amount", min_value=0.0, step=5.0)
         
     status = st.radio("Work Status", ["Completed", "Pending"], horizontal=True)
