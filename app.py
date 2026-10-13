@@ -32,32 +32,39 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # --- FORM SECTION ---
 st.header("📋 Log Daily Activity")
 
-# Date and Worker selection placed outside the form to allow live checking
+# Date and Worker selection placed outside the form for live verification lookup
 date_input = st.date_input("Date", datetime.date.today())
 worker = st.selectbox("Select Worker Name", WORKERS)
 
-# Check if this worker already has an entry for the selected date
-allowance_already_entered = False
+# Check worker's tab for non-zero allowance entries on the selected date
+allowance_already_claimed = False
 try:
     df_worker_check = conn.read(worksheet=worker, ttl="0d")
     if not df_worker_check.empty:
-        # Check if selected date exists in the worker's tab history
-        if str(date_input) in df_worker_check["Date"].astype(str).values:
-            allowance_already_entered = True
+        # Filter history for only the selected date
+        day_entries = df_worker_check[df_worker_check["Date"].astype(str) == str(date_input)]
+        
+        if not day_entries.empty:
+            # Check if any row on this date has a Fuel or Food allowance greater than 0
+            has_fuel = pd.to_numeric(day_entries["Fuel Allowance"]).max() > 0
+            has_food = pd.to_numeric(day_entries["Food Allowance"]).max() > 0
+            
+            if has_fuel or has_food:
+                allowance_already_claimed = True
 except Exception:
     pass
 
-# Display alert notice if allowance has already been processed today
-if allowance_already_entered:
-    st.warning(f"⚠️ Daily Allowances for {worker} on {date_input} have already been logged. Additional entries today will lock allowances to 0.00.")
+# Display alert notice only if non-zero allowances have already been logged today
+if allowance_already_claimed:
+    st.warning(f"⚠️ Non-zero Daily Allowances for {worker} on {date_input} have already been claimed. Additional entries will lock allowances to 0.00.")
 
 with st.form("activity_form", clear_on_submit=True):
     event = st.selectbox("Event Type", EVENTS)
     
-    # Dynamically lock value parameters if already logged today
-    if allowance_already_entered:
-        fuel = st.number_input("Fuel Allowance Amount", value=0.0, disabled=True, help="Already submitted today.")
-        food = st.number_input("Food Allowance Amount", value=0.0, disabled=True, help="Already submitted today.")
+    # Freeze inputs to 0.0 only if a non-zero claim already exists for today
+    if allowance_already_claimed:
+        fuel = st.number_input("Fuel Allowance Amount", value=0.0, disabled=True, help="Allowance already claimed today.")
+        food = st.number_input("Food Allowance Amount", value=0.0, disabled=True, help="Allowance already claimed today.")
     else:
         fuel = st.number_input("Fuel Allowance Amount", min_value=0.0, step=5.0)
         food = st.number_input("Food Allowance Amount", min_value=0.0, step=5.0)
