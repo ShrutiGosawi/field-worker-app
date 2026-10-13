@@ -29,12 +29,6 @@ st.title("Worker Data Collection App")
 # Connect to Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Read existing data
-try:
-    df = conn.read(ttl="0d") # ttl="0d" ensures it always fetches fresh data instantly
-except Exception:
-    df = pd.DataFrame(columns=["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity"])
-
 # --- FORM SECTION ---
 st.header("📋 Log Daily Activity")
 with st.form("activity_form", clear_on_submit=True):
@@ -59,61 +53,43 @@ if submit:
         "Activity": activity
     }])
     
-    # Combine old data with new entry
-    updated_df = pd.concat([df, new_entry], ignore_index=True)
+    # Try reading from that specific worker's tab on Google Sheets
+    try:
+        # worksheet=worker tells it to read only that worker's specific tab name
+        df_worker = conn.read(worksheet=worker, ttl="0d")
+    except Exception:
+        # If the worker's tab doesn't exist yet, start a fresh one with headers
+        df_worker = pd.DataFrame(columns=["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity"])
     
-    # Update Google Sheet
-    conn.update(data=updated_df)
-    st.success(f"Successfully saved data for {worker}!")
+    # Combine existing worker rows with the new entry
+    updated_worker_df = pd.concat([df_worker, new_entry], ignore_index=True)
+    
+    # Save directly back to that worker's private sheet tab
+    conn.update(worksheet=worker, data=updated_worker_df)
+    st.success(f"Successfully saved data directly to {worker}'s Google Sheet!")
     st.rerun()
 
 # --- EXPORT SECTION ---
 st.divider()
 st.header("📊 Export Reports")
 
-if not df.empty:
-    st.subheader("Current Database View")
-    st.dataframe(df)
-    
-    # Build Excel in memory
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        # Sheet 1: Master Log (All Workers together)
-        df.to_excel(writer, sheet_name="All_Logs", index=False)
-        
-        # Dynamic Generation: Split each worker into their own individual sheet tab
-        for worker_name in WORKERS:
-            # Filter the master data to get only rows for this specific worker
-            worker_data = df[df["Worker Name"] == worker_name]
-            
-            # Only create a sheet tab if the worker actually has logged data
-            if not worker_data.empty:
-                # Excel tab names are limited to 31 characters max
-                safe_tab_name = str(worker_name)[:31]
-                worker_data.to_excel(writer, sheet_name=safe_tab_name, index=False)
-        
-        # Summary Sheet 1: Worker-wise & Date-wise Summary Pivot Table
-        try:
-            worker_pivot = df.pivot_table(
-                index="Worker Name", 
-                columns="Date", 
-                values="Event Type", 
-                aggfunc="count", 
-                fill_value=0
-            )
-            worker_pivot.to_excel(writer, sheet_name="Summary_Pivot")
-        except Exception:
-            pass
-        
-        # Summary Sheet 2: Financial Totals Breakdown
-        try:
-            df["Fuel Allowance"] = pd.to_numeric(df["Fuel Allowance"])
-            df["Food Allowance"] = pd.to_numeric(df["Food Allowance"])
-            financial_summary = df.groupby("Worker Name")[["Fuel Allowance", "Food Allowance"]].sum()
-            financial_summary.to_excel(writer, sheet_name="Financial_Summary")
-        except Exception:
-            pass
+# Build a multi-tab Excel download directly from the individual Google tabs
+buffer = BytesIO()
+has_data = False
 
+with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+    for worker_name in WORKERS:
+        try:
+            # Read each worker's sheet from Google
+            worker_df = conn.read(worksheet=worker_name, ttl="0d")
+            if not worker_df.empty:
+                # Write to corresponding tab in downloaded Excel
+                worker_df.to_excel(writer, sheet_name=worker_name[:31], index=False)
+                has_data = True
+        except Exception:
+            continue
+
+if has_data:
     st.download_button(
         label="📥 Download Separated Excel Sheets",
         data=buffer.getvalue(),
