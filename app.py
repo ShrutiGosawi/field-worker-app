@@ -14,12 +14,7 @@ WORKERS = [
     "Sohan", 
     "Deepika", 
     "Dishant", 
-    "Nitish",
-    "Worker 8",   
-    "Worker 9",
-    "Worker 10",
-    "Worker 11",
-    "Worker 12"
+    "Nitish",    
 ]
 
 EVENTS = ["Site Visit", "Delivery", "Maintenance", "Client Meeting", "Other"]
