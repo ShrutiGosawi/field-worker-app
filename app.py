@@ -6,7 +6,7 @@ from io import BytesIO
 
 st.set_page_config(page_title="Field Worker Tracker", layout="centered")
 
-# --- CUSTOM WORKER NAMES LIST ---
+# --- ONLY YOUR 7 ACTIVE TEAM MEMBER NAMES ---
 WORKERS = [
     "Anand", 
     "Amit", 
@@ -14,7 +14,7 @@ WORKERS = [
     "Sohan", 
     "Deepika", 
     "Dishant", 
-    "Nitish",
+    "Nitish"
 ]
 
 EVENTS = ["Site Visit", "Delivery", "Maintenance", "Client Meeting", "Other"]
@@ -35,6 +35,7 @@ worker = st.selectbox("Select Worker Name", WORKERS)
 fuel_already_claimed = False
 food_already_claimed = False
 
+# OPTIMIZED: Only look at the ONE selected worker tab to conserve API requests
 try:
     df_worker_check = conn.read(worksheet=worker, ttl="0d")
     if not df_worker_check.empty:
@@ -107,25 +108,24 @@ if submit:
 st.divider()
 st.header("📊 Export Reports")
 
-buffer = BytesIO()
-has_data = False
-
-with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-    for worker_name in WORKERS:
-        try:
-            worker_df = conn.read(worksheet=worker_name, ttl="0d")
-            if not worker_df.empty:
-                worker_df.to_excel(writer, sheet_name=worker_name[:31], index=False)
-                has_data = True
-        except Exception:
-            continue
-
-if has_data:
-    st.download_button(
-        label="📥 Download Separated Excel Sheets",
-        data=buffer.getvalue(),
-        file_name=f"separated_worker_report_{datetime.date.today()}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-else:
-    st.info("No data logged in Google Sheets yet.")
+# OPTIMIZED EXPORT: Instead of pulling all tabs in real-time, click download 
+# to compile the active worker's downloaded spreadsheet tab immediately.
+if st.button("📥 Prepare Excel Workbook"):
+    try:
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            # Generate sheet data specifically for the selected worker active on screen
+            export_df = conn.read(worksheet=worker, ttl="0d")
+            if not export_df.empty:
+                export_df.to_excel(writer, sheet_name=str(worker)[:31], index=False)
+                
+                st.download_button(
+                    label=f"Click to Download {worker}_report.xlsx",
+                    data=buffer.getvalue(),
+                    file_name=f"{worker}_report_{datetime.date.today()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.info(f"No logged data historical rows found for {worker} yet.")
+    except Exception as e:
+        st.error("Google database busy. Please wait 10 seconds and click Prepare button again.")
