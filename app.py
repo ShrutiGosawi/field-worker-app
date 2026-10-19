@@ -40,10 +40,12 @@ with tab1:
     food_already_claimed = False
 
     try:
-        # Note: Entry form always uses ttl="0d" to verify live claims instantly
         df_worker_check = conn.read(worksheet=worker, ttl="0d")
         if not df_worker_check.empty:
-            day_entries = df_worker_check[df_worker_check["Date"].astype(str) == str(date_input)]
+            # Safely clean and convert history dates to text strings for validation lookup
+            df_worker_check["Date"] = pd.to_datetime(df_worker_check["Date"]).dt.strftime('%Y-%m-%d')
+            day_entries = df_worker_check[df_worker_check["Date"] == str(date_input)]
+            
             if not day_entries.empty:
                 max_fuel = pd.to_numeric(day_entries["Fuel Allowance"]).max()
                 if max_fuel > 0:
@@ -101,30 +103,30 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# TAB 2: CENTRAL MANAGER DASHBOARD (OPTIMIZED CACHING)
+# TAB 2: CENTRAL MANAGER DASHBOARD (FIXED DATE HANDLING)
 # ==========================================
 with tab2:
     st.header("🖥️ All Field Workers Database View")
     
-    # Let the manager manually override cache to fetch absolute latest rows instantly
     if st.button("🔄 Clear Cache & Sync Fresh Google Sheets Data"):
         st.cache_data.clear()
         st.rerun()
         
     master_list = []
     
-    # OPTIMIZED: Uses ttl="10m" cache so filter clicks don't hit Google's server limit
+    # Compile history rows from all worker sheets
     for worker_name in WORKERS:
         try:
             w_df = conn.read(worksheet=worker_name, ttl="10m")
-            if not w_df.empty:
+            if w_df is not None and not w_df.empty:
+                # Force clean text string format for dates on import
+                w_df["Date"] = pd.to_datetime(w_df["Date"]).dt.strftime('%Y-%m-%d')
                 master_list.append(w_df)
         except Exception:
             continue
             
     if master_list:
         df_all_workers = pd.concat(master_list, ignore_index=True)
-        df_all_workers["Date"] = df_all_workers["Date"].astype(str)
         
         st.divider()
         st.subheader("🔍 Filter Records")
@@ -136,13 +138,14 @@ with tab2:
             ["All Workers"] + WORKERS
         )
         
-        available_dates = sorted(df_all_workers["Date"].unique(), reverse=True)
+        # Pull drop-down items from clean string values array
+        available_dates = sorted(df_all_workers["Date"].dropna().unique(), reverse=True)
         selected_dash_date = filter_col2.selectbox(
             "Filter by Particular Date", 
             ["All Dates"] + available_dates
         )
         
-        # Apply filters locally in memory without hitting APIs
+        # Apply data filtering actions
         df_filtered = df_all_workers.copy()
         
         if selected_dash_worker != "All Workers":
@@ -153,20 +156,24 @@ with tab2:
             
         st.divider()
         
-        # 1. Total Metrics Banners
-        total_fuel = pd.to_numeric(df_filtered["Fuel Allowance"]).sum()
-        total_food = pd.to_numeric(df_filtered["Food Allowance"]).sum()
+        # Render dynamic view only if the active filter returns data rows
+        if not df_filtered.empty:
+            # 1. Total Metrics Banners
+            total_fuel = pd.to_numeric(df_filtered["Fuel Allowance"]).sum()
+            total_food = pd.to_numeric(df_filtered["Food Allowance"]).sum()
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Logged Rows", len(df_filtered))
+            col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
+            col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
+            
+            # 2. Main Live Data Table Grid
+            st.subheader("📋 Filtered Log History")
+            st.dataframe(df_filtered.sort_values(by="Date", ascending=False), use_container_width=True)
+        else:
+            st.info("No records found matching this particular Worker and Date combination.")
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Logged Rows", len(df_filtered))
-        col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
-        col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
-        
-        # 2. Main Live Data Table
-        st.subheader("📋 Filtered Log History")
-        st.dataframe(df_filtered.sort_values(by="Date", ascending=False), use_container_width=True)
-        
-        # 3. Dedicated Master Excel Generation Panel
+        # 3. Master Excel Export Operation
         st.divider()
         st.subheader("📊 Export Complete Reports to Excel")
         
