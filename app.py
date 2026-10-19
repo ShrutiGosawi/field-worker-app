@@ -40,6 +40,7 @@ with tab1:
     food_already_claimed = False
 
     try:
+        # Note: Entry form always uses ttl="0d" to verify live claims instantly
         df_worker_check = conn.read(worksheet=worker, ttl="0d")
         if not df_worker_check.empty:
             day_entries = df_worker_check[df_worker_check["Date"].astype(str) == str(date_input)]
@@ -100,17 +101,22 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# TAB 2: CENTRAL MANAGER DASHBOARD WITH FILTERS
+# TAB 2: CENTRAL MANAGER DASHBOARD (OPTIMIZED CACHING)
 # ==========================================
 with tab2:
     st.header("🖥️ All Field Workers Database View")
     
+    # Let the manager manually override cache to fetch absolute latest rows instantly
+    if st.button("🔄 Clear Cache & Sync Fresh Google Sheets Data"):
+        st.cache_data.clear()
+        st.rerun()
+        
     master_list = []
     
-    # Read each individual tab and stack them together
+    # OPTIMIZED: Uses ttl="10m" cache so filter clicks don't hit Google's server limit
     for worker_name in WORKERS:
         try:
-            w_df = conn.read(worksheet=worker_name, ttl="0d")
+            w_df = conn.read(worksheet=worker_name, ttl="10m")
             if not w_df.empty:
                 master_list.append(w_df)
         except Exception:
@@ -118,29 +124,25 @@ with tab2:
             
     if master_list:
         df_all_workers = pd.concat(master_list, ignore_index=True)
-        # Ensure correct string formatting for dates
         df_all_workers["Date"] = df_all_workers["Date"].astype(str)
         
-        # --- NEW DASHBOARD INTERACTIVE FILTERS SECTION ---
         st.divider()
         st.subheader("🔍 Filter Records")
         
         filter_col1, filter_col2 = st.columns(2)
         
-        # Dropdown for Worker Selection (includes an "All Workers" default option)
         selected_dash_worker = filter_col1.selectbox(
             "Filter by Worker Name", 
             ["All Workers"] + WORKERS
         )
         
-        # Dropdown for Date Selection (includes an "All Dates" default option)
         available_dates = sorted(df_all_workers["Date"].unique(), reverse=True)
         selected_dash_date = filter_col2.selectbox(
             "Filter by Particular Date", 
             ["All Dates"] + available_dates
         )
         
-        # Apply filters to data frames based on selection matrices
+        # Apply filters locally in memory without hitting APIs
         df_filtered = df_all_workers.copy()
         
         if selected_dash_worker != "All Workers":
@@ -151,7 +153,7 @@ with tab2:
             
         st.divider()
         
-        # 1. Dynamically Adjusted Total Metrics Banners
+        # 1. Total Metrics Banners
         total_fuel = pd.to_numeric(df_filtered["Fuel Allowance"]).sum()
         total_food = pd.to_numeric(df_filtered["Food Allowance"]).sum()
         
@@ -160,11 +162,11 @@ with tab2:
         col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
         col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
         
-        # 2. Main Filtered Data Table view display
+        # 2. Main Live Data Table
         st.subheader("📋 Filtered Log History")
         st.dataframe(df_filtered.sort_values(by="Date", ascending=False), use_container_width=True)
         
-        # 3. Dedicated Master Excel Generation Panel (Always exports master history split by worker)
+        # 3. Dedicated Master Excel Generation Panel
         st.divider()
         st.subheader("📊 Export Complete Reports to Excel")
         
