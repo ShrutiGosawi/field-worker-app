@@ -126,14 +126,14 @@ with tab2:
         # Combine all separate dataframes into one comprehensive view
         df_all_workers = pd.concat(master_list, ignore_index=True)
         
-        # 1. Total Metrics Banners
+        # 1. Total Metrics Banners (UPDATED TO RS.)
         total_fuel = pd.to_numeric(df_all_workers["Fuel Allowance"]).sum()
         total_food = pd.to_numeric(df_all_workers["Food Allowance"]).sum()
         
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Logged Rows", len(df_all_workers))
-        col2.metric("Total Fuel Payouts", f"${total_fuel:,.2f}")
-        col3.metric("Total Food Payouts", f"${total_food:,.2f}")
+        col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
+        col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
         
         # 2. Main Live Data Table showing everyone grouped chronologically
         st.subheader("📋 Comprehensive Log History")
