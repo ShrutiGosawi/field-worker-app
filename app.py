@@ -35,12 +35,13 @@ worker = st.selectbox("Select Worker Name", WORKERS)
 fuel_already_claimed = False
 food_already_claimed = False
 
-# OPTIMIZED: Only look at the ONE selected worker tab to conserve API requests
+# Fetch active worker data once to use for validation and dashboard rendering
+df_worker_display = pd.DataFrame()
 try:
-    df_worker_check = conn.read(worksheet=worker, ttl="0d")
-    if not df_worker_check.empty:
+    df_worker_display = conn.read(worksheet=worker, ttl="0d")
+    if not df_worker_display.empty:
         # Filter history for only the selected date
-        day_entries = df_worker_check[df_worker_check["Date"].astype(str) == str(date_input)]
+        day_entries = df_worker_display[df_worker_display["Date"].astype(str) == str(date_input)]
         
         if not day_entries.empty:
             # Check Fuel Allowance history for today
@@ -104,20 +105,27 @@ if submit:
     st.success(f"Successfully saved entry for {worker}!")
     st.rerun()
 
+# --- LIVE DASHBOARD DISPLAY SECTION ---
+st.divider()
+st.header(f"🖥️ Live Dashboard View: {worker}")
+
+if not df_worker_display.empty:
+    st.subheader(f"All Logged Entries inside {worker}'s Sheet")
+    # Displays the entire matching row array directly from the selected worker's Google Sheet tab
+    st.dataframe(df_worker_display, use_container_width=True)
+else:
+    st.info(f"No entry rows found inside the database for {worker} yet.")
+
 # --- EXPORT SECTION ---
 st.divider()
 st.header("📊 Export Reports")
 
-# OPTIMIZED EXPORT: Instead of pulling all tabs in real-time, click download 
-# to compile the active worker's downloaded spreadsheet tab immediately.
 if st.button("📥 Prepare Excel Workbook"):
     try:
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            # Generate sheet data specifically for the selected worker active on screen
-            export_df = conn.read(worksheet=worker, ttl="0d")
-            if not export_df.empty:
-                export_df.to_excel(writer, sheet_name=str(worker)[:31], index=False)
+            if not df_worker_display.empty:
+                df_worker_display.to_excel(writer, sheet_name=str(worker)[:31], index=False)
                 
                 st.download_button(
                     label=f"Click to Download {worker}_report.xlsx",
