@@ -33,14 +33,12 @@ tab1, tab2 = st.tabs(["📋 Log Daily Activity", "🖥️ Manager Dashboard"])
 with tab1:
     st.header("Log Daily Activity")
     
-    # Date and Worker selection inside the form tab
-    date_input = st.date_input("Date", datetime.date.today())
-    worker = st.selectbox("Select Worker Name", WORKERS)
+    date_input = st.date_input("Date", datetime.date.today(), key="entry_date")
+    worker = st.selectbox("Select Worker Name", WORKERS, key="entry_worker")
 
     fuel_already_claimed = False
     food_already_claimed = False
 
-    # Fetch active worker data for live validation lookup
     try:
         df_worker_check = conn.read(worksheet=worker, ttl="0d")
         if not df_worker_check.empty:
@@ -102,15 +100,11 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# TAB 2: CENTRAL MANAGER DASHBOARD
+# TAB 2: CENTRAL MANAGER DASHBOARD WITH FILTERS
 # ==========================================
 with tab2:
     st.header("🖥️ All Field Workers Database View")
     
-    # Button to compile all worker data down from Google Sheets tabs
-    if st.button("🔄 Refresh Master Dashboard Board"):
-        st.rerun()
-        
     master_list = []
     
     # Read each individual tab and stack them together
@@ -123,32 +117,61 @@ with tab2:
             continue
             
     if master_list:
-        # Combine all separate dataframes into one comprehensive view
         df_all_workers = pd.concat(master_list, ignore_index=True)
+        # Ensure correct string formatting for dates
+        df_all_workers["Date"] = df_all_workers["Date"].astype(str)
         
-        # 1. Total Metrics Banners (UPDATED TO RS.)
-        total_fuel = pd.to_numeric(df_all_workers["Fuel Allowance"]).sum()
-        total_food = pd.to_numeric(df_all_workers["Food Allowance"]).sum()
+        # --- NEW DASHBOARD INTERACTIVE FILTERS SECTION ---
+        st.divider()
+        st.subheader("🔍 Filter Records")
+        
+        filter_col1, filter_col2 = st.columns(2)
+        
+        # Dropdown for Worker Selection (includes an "All Workers" default option)
+        selected_dash_worker = filter_col1.selectbox(
+            "Filter by Worker Name", 
+            ["All Workers"] + WORKERS
+        )
+        
+        # Dropdown for Date Selection (includes an "All Dates" default option)
+        available_dates = sorted(df_all_workers["Date"].unique(), reverse=True)
+        selected_dash_date = filter_col2.selectbox(
+            "Filter by Particular Date", 
+            ["All Dates"] + available_dates
+        )
+        
+        # Apply filters to data frames based on selection matrices
+        df_filtered = df_all_workers.copy()
+        
+        if selected_dash_worker != "All Workers":
+            df_filtered = df_filtered[df_filtered["Worker Name"] == selected_dash_worker]
+            
+        if selected_dash_date != "All Dates":
+            df_filtered = df_filtered[df_filtered["Date"] == selected_dash_date]
+            
+        st.divider()
+        
+        # 1. Dynamically Adjusted Total Metrics Banners
+        total_fuel = pd.to_numeric(df_filtered["Fuel Allowance"]).sum()
+        total_food = pd.to_numeric(df_filtered["Food Allowance"]).sum()
         
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total Logged Rows", len(df_all_workers))
+        col1.metric("Total Logged Rows", len(df_filtered))
         col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
         col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
         
-        # 2. Main Live Data Table showing everyone grouped chronologically
-        st.subheader("📋 Comprehensive Log History")
-        st.dataframe(df_all_workers.sort_values(by="Date", ascending=False), use_container_width=True)
+        # 2. Main Filtered Data Table view display
+        st.subheader("📋 Filtered Log History")
+        st.dataframe(df_filtered.sort_values(by="Date", ascending=False), use_container_width=True)
         
-        # 3. Dedicated Excel Generation Panel
+        # 3. Dedicated Master Excel Generation Panel (Always exports master history split by worker)
         st.divider()
-        st.subheader("📊 Export Reports to Excel")
+        st.subheader("📊 Export Complete Reports to Excel")
         
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            # Sheet 1: Master All_Logs list inside Excel file
             df_all_workers.to_excel(writer, sheet_name="All_Logs", index=False)
             
-            # Dynamic Worker Sheet tabs generation inside same download
             for worker_name in WORKERS:
                 worker_data = df_all_workers[df_all_workers["Worker Name"] == worker_name]
                 if not worker_data.empty:
