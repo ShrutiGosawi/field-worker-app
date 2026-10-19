@@ -41,16 +41,15 @@ with tab1:
 
     try:
         df_worker_check = conn.read(worksheet=worker, ttl="0d")
-        if not df_worker_check.empty:
-            # Safely clean and convert history dates to text strings for validation lookup
-            df_worker_check["Date"] = pd.to_datetime(df_worker_check["Date"]).dt.strftime('%Y-%m-%d')
+        if df_worker_check is not None and not df_worker_check.empty:
+            df_worker_check["Date"] = pd.to_datetime(df_worker_check["Date"], errors='coerce').dt.strftime('%Y-%m-%d')
             day_entries = df_worker_check[df_worker_check["Date"] == str(date_input)]
             
             if not day_entries.empty:
-                max_fuel = pd.to_numeric(day_entries["Fuel Allowance"]).max()
+                max_fuel = pd.to_numeric(day_entries["Fuel Allowance"], errors='coerce').max()
                 if max_fuel > 0:
                     fuel_already_claimed = True
-                max_food = pd.to_numeric(day_entries["Food Allowance"]).max()
+                max_food = pd.to_numeric(day_entries["Food Allowance"], errors='coerce').max()
                 if max_food > 0:
                     food_already_claimed = True
     except Exception:
@@ -103,7 +102,7 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# TAB 2: CENTRAL MANAGER DASHBOARD (FIXED DATE HANDLING)
+# TAB 2: CENTRAL MANAGER DASHBOARD (STABLE FILTER FIX)
 # ==========================================
 with tab2:
     st.header("🖥️ All Field Workers Database View")
@@ -114,13 +113,18 @@ with tab2:
         
     master_list = []
     
-    # Compile history rows from all worker sheets
+    # Safely extract rows from each worksheet tab
     for worker_name in WORKERS:
         try:
             w_df = conn.read(worksheet=worker_name, ttl="10m")
             if w_df is not None and not w_df.empty:
-                # Force clean text string format for dates on import
-                w_df["Date"] = pd.to_datetime(w_df["Date"]).dt.strftime('%Y-%m-%d')
+                # Fill missing column shapes if they don't match up
+                for col in ["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity"]:
+                    if col not in w_df.columns:
+                        w_df[col] = ""
+                # Strip and uniform date formatting patterns
+                w_df["Date"] = pd.to_datetime(w_df["Date"], errors='coerce').dt.strftime('%Y-%m-%d')
+                w_df = w_df.dropna(subset=["Date"])
                 master_list.append(w_df)
         except Exception:
             continue
@@ -138,14 +142,13 @@ with tab2:
             ["All Workers"] + WORKERS
         )
         
-        # Pull drop-down items from clean string values array
         available_dates = sorted(df_all_workers["Date"].dropna().unique(), reverse=True)
         selected_dash_date = filter_col2.selectbox(
             "Filter by Particular Date", 
             ["All Dates"] + available_dates
         )
         
-        # Apply data filtering actions
+        # Apply filters onto separate array variables locally
         df_filtered = df_all_workers.copy()
         
         if selected_dash_worker != "All Workers":
@@ -156,22 +159,21 @@ with tab2:
             
         st.divider()
         
-        # Render dynamic view only if the active filter returns data rows
+        # 1. Total Metrics Banners (Calculates dynamically and stably)
+        total_fuel = pd.to_numeric(df_filtered["Fuel Allowance"], errors='coerce').sum()
+        total_food = pd.to_numeric(df_filtered["Food Allowance"], errors='coerce').sum()
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Logged Rows", len(df_filtered))
+        col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
+        col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
+        
+        # 2. Main Live Data Table Grid View
         if not df_filtered.empty:
-            # 1. Total Metrics Banners
-            total_fuel = pd.to_numeric(df_filtered["Fuel Allowance"]).sum()
-            total_food = pd.to_numeric(df_filtered["Food Allowance"]).sum()
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Logged Rows", len(df_filtered))
-            col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
-            col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
-            
-            # 2. Main Live Data Table Grid
             st.subheader("📋 Filtered Log History")
             st.dataframe(df_filtered.sort_values(by="Date", ascending=False), use_container_width=True)
         else:
-            st.info("No records found matching this particular Worker and Date combination.")
+            st.info("No records found matching this particular Worker and Date filter setup.")
         
         # 3. Master Excel Export Operation
         st.divider()
