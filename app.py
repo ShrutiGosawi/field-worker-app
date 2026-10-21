@@ -39,19 +39,28 @@ with tab1:
     fuel_already_claimed = False
     food_already_claimed = False
 
+    # Standard expected columns in our code
+    target_cols = ["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity", "Client"]
+
     try:
         df_worker_check = conn.read(worksheet=worker, ttl="0d")
         if df_worker_check is not None and not df_worker_check.empty:
-            df_worker_check["Date"] = pd.to_datetime(df_worker_check["Date"], errors='coerce').dt.strftime('%Y-%m-%d')
-            day_entries = df_worker_check[df_worker_check["Date"] == str(date_input)]
+            # Clean sheet column names case-insensitively
+            df_worker_check.columns = [str(c).strip().title() for c in df_worker_check.columns]
             
-            if not day_entries.empty:
-                max_fuel = pd.to_numeric(day_entries["Fuel Allowance"], errors='coerce').max()
-                if max_fuel > 0:
-                    fuel_already_claimed = True
-                max_food = pd.to_numeric(day_entries["Food Allowance"], errors='coerce').max()
-                if max_food > 0:
-                    food_already_claimed = True
+            if "Date" in df_worker_check.columns:
+                df_worker_check["Date"] = pd.to_datetime(df_worker_check["Date"], errors='coerce').dt.strftime('%Y-%m-%d')
+                day_entries = df_worker_check[df_worker_check["Date"] == str(date_input)]
+                
+                if not day_entries.empty:
+                    if "Fuel Allowance" in day_entries.columns:
+                        max_fuel = pd.to_numeric(day_entries["Fuel Allowance"], errors='coerce').max()
+                        if max_fuel > 0:
+                            fuel_already_claimed = True
+                    if "Food Allowance" in day_entries.columns:
+                        max_food = pd.to_numeric(day_entries["Food Allowance"], errors='coerce').max()
+                        if max_food > 0:
+                            food_already_claimed = True
     except Exception:
         pass
 
@@ -77,8 +86,6 @@ with tab1:
             
         status = st.radio("Work Status", ["Completed", "Pending"], horizontal=True)
         activity = st.text_input("Describe Your Activity", placeholder="Enter notes or task details here...")
-        
-        # New Text Input Field for Client Designation
         client = st.text_input("Client Name", placeholder="Enter the client or company name here...")
         
         submit = st.form_submit_button("Submit Entry")
@@ -92,15 +99,30 @@ with tab1:
             "Food Allowance": float(food),
             "Status": status,
             "Activity": activity,
-            "Client": client  # Tracked entry field value mapping mapping
+            "Client": client  
         }])
         
         try:
             df_worker = conn.read(worksheet=worker, ttl="0d")
+            if df_worker is not None and not df_worker.empty:
+                # Clean headers of sheet dynamically
+                df_worker.columns = [str(c).strip().title() for c in df_worker.columns]
+                
+                # Dynamic Check: If the worker's tab doesn't have "Client" column header yet, add it
+                if "Client" not in df_worker.columns:
+                    df_worker["Client"] = ""
+            else:
+                df_worker = pd.DataFrame(columns=target_cols)
         except Exception:
-            df_worker = pd.DataFrame(columns=["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity", "Client"])
+            df_worker = pd.DataFrame(columns=target_cols)
         
+        # Merge new row securely
         updated_worker_df = pd.concat([df_worker, new_entry], ignore_index=True)
+        
+        # Enforce exact column structures matching our target grid schema
+        updated_worker_df = updated_worker_df.reindex(columns=target_cols)
+        
+        # Update specific sheet worksheet
         conn.update(worksheet=worker, data=updated_worker_df)
         st.success(f"Successfully saved entry for {worker}!")
         st.rerun()
@@ -121,8 +143,8 @@ with tab2:
         try:
             w_df = conn.read(worksheet=worker_name, ttl="10m")
             if w_df is not None and not w_df.empty:
-                # Include Client column inside structural default arrays check block
-                for col in ["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity", "Client"]:
+                w_df.columns = [str(c).strip().title() for c in w_df.columns]
+                for col in target_cols:
                     if col not in w_df.columns:
                         w_df[col] = ""
                 w_df["Date"] = pd.to_datetime(w_df["Date"], errors='coerce').dt.strftime('%Y-%m-%d')
