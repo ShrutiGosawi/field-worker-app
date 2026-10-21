@@ -78,6 +78,9 @@ with tab1:
         status = st.radio("Work Status", ["Completed", "Pending"], horizontal=True)
         activity = st.text_input("Describe Your Activity", placeholder="Enter notes or task details here...")
         
+        # New Text Input Field for Client Designation
+        client = st.text_input("Client Name", placeholder="Enter the client or company name here...")
+        
         submit = st.form_submit_button("Submit Entry")
 
     if submit:
@@ -88,13 +91,14 @@ with tab1:
             "Fuel Allowance": float(fuel),
             "Food Allowance": float(food),
             "Status": status,
-            "Activity": activity
+            "Activity": activity,
+            "Client": client  # Tracked entry field value mapping mapping
         }])
         
         try:
             df_worker = conn.read(worksheet=worker, ttl="0d")
         except Exception:
-            df_worker = pd.DataFrame(columns=["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity"])
+            df_worker = pd.DataFrame(columns=["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity", "Client"])
         
         updated_worker_df = pd.concat([df_worker, new_entry], ignore_index=True)
         conn.update(worksheet=worker, data=updated_worker_df)
@@ -102,7 +106,7 @@ with tab1:
         st.rerun()
 
 # ==========================================
-# TAB 2: CENTRAL MANAGER DASHBOARD (STABLE FILTER FIX)
+# TAB 2: CENTRAL MANAGER DASHBOARD
 # ==========================================
 with tab2:
     st.header("🖥️ All Field Workers Database View")
@@ -113,16 +117,14 @@ with tab2:
         
     master_list = []
     
-    # Safely extract rows from each worksheet tab
     for worker_name in WORKERS:
         try:
             w_df = conn.read(worksheet=worker_name, ttl="10m")
             if w_df is not None and not w_df.empty:
-                # Fill missing column shapes if they don't match up
-                for col in ["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity"]:
+                # Include Client column inside structural default arrays check block
+                for col in ["Date", "Worker Name", "Event Type", "Fuel Allowance", "Food Allowance", "Status", "Activity", "Client"]:
                     if col not in w_df.columns:
                         w_df[col] = ""
-                # Strip and uniform date formatting patterns
                 w_df["Date"] = pd.to_datetime(w_df["Date"], errors='coerce').dt.strftime('%Y-%m-%d')
                 w_df = w_df.dropna(subset=["Date"])
                 master_list.append(w_df)
@@ -148,7 +150,6 @@ with tab2:
             ["All Dates"] + available_dates
         )
         
-        # Apply filters onto separate array variables locally
         df_filtered = df_all_workers.copy()
         
         if selected_dash_worker != "All Workers":
@@ -159,7 +160,6 @@ with tab2:
             
         st.divider()
         
-        # 1. Total Metrics Banners (Calculates dynamically and stably)
         total_fuel = pd.to_numeric(df_filtered["Fuel Allowance"], errors='coerce').sum()
         total_food = pd.to_numeric(df_filtered["Food Allowance"], errors='coerce').sum()
         
@@ -168,14 +168,12 @@ with tab2:
         col2.metric("Total Fuel Payouts", f"Rs. {total_fuel:,.2f}")
         col3.metric("Total Food Payouts", f"Rs. {total_food:,.2f}")
         
-        # 2. Main Live Data Table Grid View
         if not df_filtered.empty:
             st.subheader("📋 Filtered Log History")
             st.dataframe(df_filtered.sort_values(by="Date", ascending=False), use_container_width=True)
         else:
             st.info("No records found matching this particular Worker and Date filter setup.")
         
-        # 3. Master Excel Export Operation
         st.divider()
         st.subheader("📊 Export Complete Reports to Excel")
         
