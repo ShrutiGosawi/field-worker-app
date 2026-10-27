@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 from io import BytesIO
+from sqlalchemy import text
 
 st.set_page_config(page_title="Field Worker Tracker", layout="wide")
 
@@ -26,22 +27,27 @@ st.title("Worker Tracking & Analytics Portal (PostgreSQL Engine)")
 # Connect natively to your local PostgreSQL Database container
 conn = st.connection("sql")
 
-# Ensure structural relation database tables exist on server startup init initialization
-for w in WORKERS:
-    t_name = str(w).lower()
-    conn.query(f"""
-        CREATE TABLE IF NOT EXISTS {t_name} (
-            id SERIAL PRIMARY KEY,
-            date TEXT,
-            worker_name TEXT,
-            event_type TEXT,
-            fuel_allowance NUMERIC,
-            food_allowance NUMERIC,
-            status TEXT,
-            activity TEXT,
-            client TEXT
-        );
-    """, ttl="0d")
+# Optimized initialization layer using clean session executions
+try:
+    with conn.session as session:
+        for w in WORKERS:
+            t_name = str(w).lower()
+            session.execute(text(f"""
+                CREATE TABLE IF NOT EXISTS {t_name} (
+                    id SERIAL PRIMARY KEY,
+                    date TEXT,
+                    worker_name TEXT,
+                    event_type TEXT,
+                    fuel_allowance NUMERIC,
+                    food_allowance NUMERIC,
+                    status TEXT,
+                    activity TEXT,
+                    client TEXT
+                );
+            """))
+        session.commit()
+except Exception as e:
+    st.error(f"Database Initialization Error: {e}")
 
 # --- CREATE SEPARATE PAGES/TABS ---
 tab1, tab2 = st.tabs(["📋 Log Daily Activity", "🖥️ Manager Dashboard"])
@@ -79,10 +85,16 @@ with tab1:
         t_name = str(worker).lower()
 
         try:
-            # Query history for the selected date straight from the PostgreSQL engine
-            day_entries = conn.query(f"SELECT * FROM {t_name} WHERE date = :date", params={"date": str(date_input)}, ttl="0d")
+            # Query history using structured execution mapping parameters
+            day_entries = conn.query(
+                f"SELECT * FROM {t_name} WHERE date = :date", 
+                params={"date": str(date_input)}, 
+                ttl="0d"
+            )
             
             if not day_entries.empty:
+                # Map case-insensitive column names safely
+                day_entries.columns = [c.lower() for c in day_entries.columns]
                 max_fuel = pd.to_numeric(day_entries["fuel_allowance"], errors='coerce').max()
                 if max_fuel > 0:
                     fuel_already_claimed = True
@@ -120,31 +132,33 @@ with tab1:
 
     if submit:
         # Write clean rows straight into relational SQL tables
-        with conn.session as session:
-            session.execute(
-                f"""
-                INSERT INTO {t_name} (date, worker_name, event_type, fuel_allowance, food_allowance, status, activity, client)
-                VALUES (:date, :worker_name, :event_type, :fuel_allowance, :food_allowance, :status, :activity, :client);
-                """,
-                {
-                    "date": str(date_input),
-                    "worker_name": worker,
-                    "event_type": event,
-                    "fuel_allowance": float(fuel),
-                    "food_allowance": float(food),
-                    "status": status,
-                    "activity": activity,
-                    "client": client
-                }
-            )
-            session.commit()
-            
-        st.cache_data.clear() # Clear dashboard layout state memory
-        st.success(f"Successfully saved entry for {worker} to PostgreSQL database!")
-        st.rerun()
+        try:
+            with conn.session as session:
+                session.execute(
+                    text(f"""
+                    INSERT INTO {t_name} (date, worker_name, event_type, fuel_allowance, food_allowance, status, activity, client)
+                    VALUES (:date, :worker_name, :event_type, :fuel_allowance, :food_allowance, :status, :activity, :client);
+                    """),
+                    {
+                        "date": str(date_input),
+                        "worker_name": worker,
+                        "event_type": event,
+                        "fuel_allowance": float(fuel),
+                        "food_allowance": float(food),
+                        "status": status,
+                        "activity": activity,
+                        "client": client
+                    }
+                )
+                session.commit()
+            st.cache_data.clear() # Clear dashboard layout state memory
+            st.success(f"Successfully saved entry for {worker} to PostgreSQL database!")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Submission Error: {e}")
 
 # ==========================================
-# TAB 2: CENTRAL MANAGER DASHBOARD (RELATIONAL AGGREGATION)
+# TAB 2: CENTRAL MANAGER DASHBOARD
 # ==========================================
 with tab2:
     st.header("🖥️ All Field Workers Database View")
@@ -158,15 +172,15 @@ with tab2:
     # Read each matching user table and compile them inside system memory arrays
     for worker_name in WORKERS:
         try:
-            w_df = conn.query(f"SELECT * FROM {str(worker_name).lower()};", ttl="5m")
+            w_df = conn.query(f"SELECT * FROM {str(worker_name).lower()};", ttl="0d")
             if w_df is not None and not w_df.empty:
+                w_df.columns = [c.lower() for c in w_df.columns]
                 master_list.append(w_df)
         except Exception:
             continue
             
     if master_list:
         df_all_workers = pd.concat(master_list, ignore_index=True)
-        # Standardize column visualization header metrics
         df_all_workers.columns = [str(c).strip().lower() for c in df_all_workers.columns]
         
         st.divider()
@@ -229,4 +243,4 @@ with tab2:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
-        st.info("No active relational records tracked inside your server database tables yet.")
+st.info("No active relational records tracked inside your server database tables yet.")
