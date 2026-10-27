@@ -243,4 +243,4 @@ with tab2:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     else:
-st.info("No active relational records tracked inside your server database tables yet.")
+         st.info("No active relational records tracked inside your server database tables yet.")
